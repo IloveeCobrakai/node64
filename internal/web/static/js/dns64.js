@@ -405,6 +405,7 @@
 				else if (details === "canary") { details = t("reason_canary"); }
 				else if (details === "bypass:icloud") { details = t("reason_bypass_icloud", { group: r.group || "" }); }
 				else if (details.indexOf("cat:") === 0) { details = t("reason_cat", { cat: t("cat." + details.slice(4)), group: r.group || "" }); }
+				if (r.rule) { details = t("reason_client_rule", { rule: r.rule }) + (details ? " · " + details : ""); }
 				if (!details && r.upstream) { details = t("via", { name: r.upstream }); }
 				if (r.rcode && r.rcode !== "NOERROR") { details = (details ? details + " · " : "") + r.rcode; }
 				var st = el("td");
@@ -702,6 +703,33 @@
 				$("rec-count").textContent = nf.format(n);
 			});
 		}
+	}
+
+	if (kind === "client-rules" && $("client-rule-form")) {
+		var form = $("client-rule-form"), title = $("cr-title"), submit = $("cr-submit"), label = submit.querySelector("span").textContent;
+		var resetClientRule = function () {
+			form.reset();
+			form.action = "/dns64/client-rules";
+			title.textContent = title.getAttribute("data-add") || title.textContent;
+			submit.querySelector("span").textContent = label;
+			$("cr-cancel").classList.add("d-none");
+		};
+		title.setAttribute("data-add", title.textContent);
+		document.querySelectorAll("[data-client-rule-edit]").forEach(function (b) {
+			b.addEventListener("click", function () {
+				form.action = "/dns64/client-rules/" + b.getAttribute("data-client-rule-edit") + "/edit";
+				["name", "network", "a", "aaaa", "ttl", "comment"].forEach(function (key) {
+					$("cr-" + key).value = b.getAttribute("data-" + key) || "";
+				});
+				$("cr-local").checked = b.getAttribute("data-local") === "1";
+				title.textContent = title.getAttribute("data-edit");
+				submit.querySelector("span").textContent = submit.getAttribute("data-edit");
+				$("cr-cancel").classList.remove("d-none");
+				form.scrollIntoView({ behavior: "smooth", block: "start" });
+				$("cr-name").focus();
+			});
+		});
+		$("cr-cancel").addEventListener("click", resetClientRule);
 	}
 
 	// Weiterleitungen, Umschreiben und lokale Zonen: Bearbeiten im Formular der Karte, Testabfrage je Weiterleitung

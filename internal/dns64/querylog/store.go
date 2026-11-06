@@ -57,6 +57,7 @@ type Entry struct {
 	Duration time.Duration
 	Proto    string // udp, tcp, doh, dot, doq
 	Group    string // Geraetegruppe ("" = keine)
+	Rule     string // DNS-Antwortregel nach Clientnetz
 }
 
 const schema = `
@@ -76,7 +77,7 @@ CREATE INDEX IF NOT EXISTS idx_queries_ts ON queries(ts);
 `
 
 // columns added later (ALTER TABLE, skipped when present)
-var addColumns = []string{`ALTER TABLE queries ADD COLUMN proto TEXT NOT NULL DEFAULT ''`, `ALTER TABLE queries ADD COLUMN grp TEXT NOT NULL DEFAULT ''`}
+var addColumns = []string{`ALTER TABLE queries ADD COLUMN proto TEXT NOT NULL DEFAULT ''`, `ALTER TABLE queries ADD COLUMN grp TEXT NOT NULL DEFAULT ''`, `ALTER TABLE queries ADD COLUMN rule TEXT NOT NULL DEFAULT ''`}
 
 type Store struct {
 	db        *sql.DB
@@ -253,8 +254,8 @@ func (s *Store) write(batch []Entry) {
 		s.log.Error("querylog begin", "err", err)
 		return
 	}
-	stmt, err := tx.Prepare(`INSERT INTO queries (ts, client, domain, qtype, status, reason, rcode, upstream, duration_us, proto, grp)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	stmt, err := tx.Prepare(`INSERT INTO queries (ts, client, domain, qtype, status, reason, rcode, upstream, duration_us, proto, grp, rule)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		tx.Rollback()
 		s.log.Error("querylog prepare", "err", err)
@@ -263,7 +264,7 @@ func (s *Store) write(batch []Entry) {
 	defer stmt.Close()
 	for _, e := range batch {
 		if _, err := stmt.Exec(e.Time.UnixMilli(), e.Client, e.Domain, e.QType, int(e.Status),
-			e.Reason, e.Rcode, e.Upstream, e.Duration.Microseconds(), e.Proto, e.Group); err != nil {
+			e.Reason, e.Rcode, e.Upstream, e.Duration.Microseconds(), e.Proto, e.Group, e.Rule); err != nil {
 			tx.Rollback()
 			s.log.Error("querylog insert", "err", err)
 			return
@@ -451,6 +452,7 @@ type LogRow struct {
 	DurationMs float64 `json:"ms"`
 	Proto      string  `json:"proto,omitempty"`
 	Group      string  `json:"group,omitempty"`
+	Rule       string  `json:"rule,omitempty"`
 }
 
 type LogFilter struct {
@@ -488,7 +490,7 @@ func (s *Store) Recent(ctx context.Context, f LogFilter) ([]LogRow, int64, error
 		return nil, 0, err
 	}
 
-	q := `SELECT ts, client, domain, qtype, status, reason, rcode, upstream, duration_us, proto, grp FROM queries` +
+	q := `SELECT ts, client, domain, qtype, status, reason, rcode, upstream, duration_us, proto, grp, rule FROM queries` +
 		cond + " ORDER BY id DESC LIMIT ? OFFSET ?"
 	rows, err := s.db.QueryContext(ctx, q, append(args, f.Limit, f.Offset)...)
 	if err != nil {
@@ -500,7 +502,7 @@ func (s *Store) Recent(ctx context.Context, f LogFilter) ([]LogRow, int64, error
 		var r LogRow
 		var st int
 		var us int64
-		if err := rows.Scan(&r.Time, &r.Client, &r.Domain, &r.QType, &st, &r.Reason, &r.Rcode, &r.Upstream, &us, &r.Proto, &r.Group); err != nil {
+		if err := rows.Scan(&r.Time, &r.Client, &r.Domain, &r.QType, &st, &r.Reason, &r.Rcode, &r.Upstream, &us, &r.Proto, &r.Group, &r.Rule); err != nil {
 			return nil, 0, err
 		}
 		r.Status = Status(st).String()

@@ -1,0 +1,56 @@
+{{define "content"}}
+{{$d := .Data}}
+<div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+	<h1 class="h4 mb-0"><i class="bi bi-diagram-2 text-primary"></i> {{.T "dns64.client_rules.title"}}{{.Doc "dns64#lokaler-dns"}}</h1>
+	{{if $d.Running}}<span class="badge text-bg-success" title="{{.T "dns64.since" "time" (.Time $d.Started)}}"><i class="bi bi-broadcast"></i> {{.T "dns64.listening" "addr" $d.Listen}}</span>{{end}}
+</div>
+<ul class="nav nav-tabs mb-3">
+	{{range $d.Tabs}}<li class="nav-item"><a class="nav-link{{if .Active}} active{{end}}" href="{{.Path}}"><i class="bi {{.Icon}}"></i> {{$.T .TitleKey}}</a></li>{{end}}
+</ul>
+{{if not $d.Running}}<div class="alert alert-warning"><i class="bi bi-exclamation-triangle"></i> {{.T "dns64.not_running"}}{{if $d.Err}}<div class="small mt-1 font-monospace">{{$d.Err}}</div><div class="small mt-1">{{.T "dns64.retrying"}}</div>{{end}}</div>{{end}}
+<div class="alert alert-info py-2 small"><i class="bi bi-info-circle"></i> {{.T "dns64.client_rules.hint"}}</div>
+<div class="small text-body-secondary mb-3"><i class="bi bi-hdd-network"></i> {{.T "dns64.local.cluster_hint"}} <a href="/cluster">{{.T "dns64.local.cluster_link"}}</a></div>
+<script type="application/json" id="dns64-data">{{$d.JS}}</script>
+<div data-dns64-page="client-rules">
+	<div class="card mb-3">
+		<div class="card-header"><i class="bi bi-plus-circle text-primary"></i> <span id="cr-title" data-edit="{{.T "dns64.client_rules.edit"}}">{{.T "dns64.client_rules.add"}}</span></div>
+		<div class="card-body">
+			<form method="post" action="/dns64/client-rules" id="client-rule-form">
+				<input type="hidden" name="_csrf" value="{{.CSRF}}">
+				<div class="row g-2">
+					<div class="col-lg-3 col-md-6"><label class="form-label" for="cr-name">{{.T "dns64.client_rules.domain"}}</label><input type="text" class="form-control font-monospace" id="cr-name" name="name" placeholder="service.example.com" required maxlength="253"></div>
+					<div class="col-lg-3 col-md-6"><label class="form-label" for="cr-network">{{.T "dns64.client_rules.network"}}</label><input type="text" class="form-control font-monospace" id="cr-network" name="network" placeholder="10.10.0.0/16" required maxlength="64"></div>
+					<div class="col-lg-2 col-md-6"><label class="form-label" for="cr-a">A</label><input type="text" class="form-control font-monospace" id="cr-a" name="a" placeholder="192.0.2.10" maxlength="45"></div>
+					<div class="col-lg-2 col-md-6"><label class="form-label" for="cr-aaaa">AAAA</label><input type="text" class="form-control font-monospace" id="cr-aaaa" name="aaaa" placeholder="2001:db8::10" maxlength="45"></div>
+					<div class="col-lg-2 col-md-6"><label class="form-label" for="cr-ttl">TTL</label><input type="number" class="form-control" id="cr-ttl" name="ttl" min="1" max="86400" value="300"></div>
+					<div class="col-md-8"><label class="form-label" for="cr-comment">{{.T "dns64.records.comment"}}</label><input type="text" class="form-control" id="cr-comment" name="comment" maxlength="200" placeholder="{{.T "dns64.client_rules.comment_ph"}}"></div>
+					<div class="col-md-4 d-flex align-items-end pb-2"><div class="form-check"><input class="form-check-input" type="checkbox" id="cr-local" name="local_only" value="1"><label class="form-check-label" for="cr-local">{{.T "dns64.records.local_only"}}</label></div></div>
+				</div>
+				<div class="form-text mt-2">{{.T "dns64.client_rules.form_hint"}}</div>
+				<div class="mt-2"><button class="btn btn-primary" type="submit" id="cr-submit" data-edit="{{.T "common.save"}}"><i class="bi bi-plus"></i> <span>{{.T "dns64.client_rules.add_btn"}}</span></button> <button class="btn btn-outline-secondary d-none" type="button" id="cr-cancel">{{.T "common.cancel"}}</button></div>
+			</form>
+		</div>
+	</div>
+	<div class="card">
+		<div class="card-header d-flex align-items-center gap-2"><span><i class="bi bi-diagram-2 text-primary"></i> {{.T "dns64.client_rules.title"}} <span class="badge text-bg-light">{{len $d.ClientRules}}</span></span></div>
+		{{if $d.ClientRules}}<form method="post">
+			<input type="hidden" name="_csrf" value="{{.CSRF}}">
+			<div class="table-responsive"><table class="table table-sm table-hover align-middle mb-0 small table-stack">
+				<thead><tr><th class="ps-3">{{.T "dns64.client_rules.domain"}}</th><th>{{.T "dns64.client_rules.network"}}</th><th>A</th><th>AAAA</th><th class="text-end">TTL</th><th>{{.T "common.status"}}</th><th></th></tr></thead>
+				<tbody>{{range $d.ClientRules}}<tr{{if not .Enabled}} class="text-body-tertiary"{{end}}>
+					<td class="ps-3 text-break"><span class="font-monospace">{{.Name}}</span>{{if .Comment}}<div class="text-body-secondary">{{.Comment}}</div>{{end}}</td>
+					<td class="font-monospace text-break">{{.Network}}{{if .LocalOnly}} <span class="badge text-bg-light" title="{{$.T "dns64.records.local_only"}}"><i class="bi bi-pin-angle"></i></span>{{end}}</td>
+					<td class="font-monospace">{{if .A}}{{.A}}{{else}}–{{end}}</td><td class="font-monospace">{{if .AAAA}}{{.AAAA}}{{else}}–{{end}}</td><td class="text-end">{{.TTL}}</td>
+					<td>{{if .Enabled}}<span class="badge text-bg-success">{{$.T "dns64.js.active"}}</span>{{else}}<span class="badge text-bg-secondary">{{$.T "dns64.js.off"}}</span>{{end}}</td>
+					<td class="text-end pe-3 text-nowrap">
+						<button type="button" class="btn btn-sm btn-outline-primary py-0" data-client-rule-edit="{{.ID}}" data-name="{{.Name}}" data-network="{{.Network}}" data-a="{{.A}}" data-aaaa="{{.AAAA}}" data-ttl="{{.TTL}}" data-comment="{{.Comment}}" data-local="{{if .LocalOnly}}1{{end}}" title="{{$.T "dns64.client_rules.edit"}}"><i class="bi bi-pencil"></i></button>
+						<button type="submit" class="btn btn-sm btn-outline-secondary py-0" formaction="/dns64/client-rules/{{.ID}}/toggle" name="on" value="{{if .Enabled}}0{{else}}1{{end}}" title="{{if .Enabled}}{{$.T "common.disable"}}{{else}}{{$.T "common.enable"}}{{end}}"><i class="bi {{if .Enabled}}bi-pause{{else}}bi-play{{end}}"></i></button>
+						<button type="submit" class="btn btn-sm btn-outline-danger py-0" formaction="/dns64/client-rules/{{.ID}}/delete" data-confirm="{{$.T "dns64.client_rules.delete_confirm" "name" .Name "network" .Network}}" title="{{$.T "common.delete"}}"><i class="bi bi-trash"></i></button>
+					</td>
+				</tr>{{end}}</tbody>
+			</table></div>
+		</form>{{else}}<div class="card-body small text-body-secondary">{{.T "dns64.client_rules.none"}}</div>{{end}}
+	</div>
+</div>
+{{end}}
+{{define "scripts"}}<script src="/static/js/dns64.js?v={{.Version}}"></script>{{end}}

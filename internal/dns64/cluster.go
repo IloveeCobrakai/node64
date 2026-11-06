@@ -18,8 +18,8 @@ import (
 
 // Cluster: DNS64 gleicht ueber den Cluster (internal/peer, verbunden ueber dns64/dns64cluster, damit dns64 nicht von
 // peer abhaengt) seine Bereiche ab, jeden einzeln schaltbar und ohne Einstellung aus. Nie abgeglichen werden Ports,
-// Schnittstellen, Router, DoH/DoT/DoQ, Namen und Zertifikat, Client-Netze, Pause, Abfrage-Log sowie Eintraege und
-// Weiterleitungen mit "nur diese Node".
+// Schnittstellen, Router, DoH/DoT/DoQ, Namen und Zertifikat, Resolver-Zugangsnetze, Pause, Abfrage-Log sowie Eintraege,
+// Clientnetz-Regeln und Weiterleitungen mit "nur diese Node".
 //
 // Aenderungen erkennt DNS64 am Vergleich mit dem zuletzt gemeldeten Stand je Bereich (nach jedem Neuladen der
 // Eintraege, Weiterleitungen, Zonen, Gruppen, Einstellungen und Freigaben) - so meldet jede Aenderung, egal ueber
@@ -34,7 +34,7 @@ const (
 	ItemLists    = "lists"         // Blocklisten-Auswahl, eigene Listen, Aktualisierung
 	ItemAllow    = "allowlist"     // Freigaben
 	ItemDeny     = "denylist"      // eigene Sperrliste
-	ItemRecords  = "records"       // eigene Eintraege (r:<hash>) und lokale Zonen (z:<name>)
+	ItemRecords  = "records"       // eigene Eintraege (r:<hash>), Clientnetz-Regeln (n:<hash>) und lokale Zonen (z:<name>)
 	ItemForwards = "forwards"      // Weiterleitungen (f:<domain>) und Umschreiben (w:<name>)
 	ItemGroups   = "groups"        // Gruppen mit Regeln, Domains, Zeitplaenen, Sperren/Frei (<uid>)
 	ItemMembers  = "group_members" // Mitglieder je Gruppe (<uid>)
@@ -134,6 +134,16 @@ type clRecord struct {
 	Enabled bool   `json:"enabled"`
 }
 
+type clClientRule struct {
+	Network string `json:"network"`
+	Name    string `json:"name"`
+	A       string `json:"a,omitempty"`
+	AAAA    string `json:"aaaa,omitempty"`
+	TTL     int    `json:"ttl"`
+	Comment string `json:"comment,omitempty"`
+	Enabled bool   `json:"enabled"`
+}
+
 type clZone struct {
 	Name          string `json:"name"`
 	Authoritative bool   `json:"authoritative"`
@@ -203,6 +213,11 @@ func recordKey(name, typ, value string) string {
 	return "r:" + hex.EncodeToString(h[:12])
 }
 
+func clientRuleKey(network, name string) string {
+	h := sha256.Sum256([]byte(network + "\x00" + name))
+	return "n:" + hex.EncodeToString(h[:12])
+}
+
 func jsonString(v any) string {
 	b, _ := json.Marshal(v)
 	return string(b)
@@ -238,6 +253,15 @@ func (m *Module) clCurrent(ctx context.Context, item string) (map[string]string,
 		for _, r := range recs {
 			if !r.LocalOnly {
 				out[recordKey(r.Name, r.Type, r.Value)] = jsonString(clRecord{r.Name, r.Type, r.Value, r.TTL, r.Comment, r.NoPTR, r.Enabled})
+			}
+		}
+		clientRules, err := m.ClientRules(ctx)
+		if err != nil && !m.noTable(err) {
+			return nil, err
+		}
+		for _, r := range clientRules {
+			if !r.LocalOnly {
+				out[clientRuleKey(r.Network, r.Name)] = jsonString(clClientRule{r.Network, r.Name, r.A, r.AAAA, r.TTL, r.Comment, r.Enabled})
 			}
 		}
 		zones, err := m.Zones(ctx)
@@ -383,6 +407,9 @@ func (m *Module) ClusterApply(ctx context.Context, item, id string, data json.Ra
 		m.clChanged(ctx, item)
 		return nil
 	case ItemRecords:
+		if strings.HasPrefix(id, "n:") {
+			return m.clApplyClientRule(ctx, strings.TrimPrefix(id, "n:"), data, deleted)
+		}
 		if strings.HasPrefix(id, "z:") {
 			return m.clApplyZone(ctx, strings.TrimPrefix(id, "z:"), data, deleted)
 		}
@@ -398,6 +425,56 @@ func (m *Module) ClusterApply(ctx context.Context, item, id string, data json.Ra
 		return m.clApplyMembers(ctx, id, data, deleted)
 	}
 	return errUnknownItem
+}
+
+// clApplyClientRule uebernimmt eine Netzregel gezielt; die Momentaufnahme wird gebuendelt neu geladen.
+func (m *Module) clApplyClientRule(ctx context.Context, key string, data json.RawMessage, deleted bool) error {
+	id := "n:" + key
+	w := m.core.Writer()
+	if deleted {
+		m.clMu.Lock()
+		old, ok := m.clSnap[ItemRecords][id]
+		m.clMu.Unlock()
+		var in clClientRule
+		if !ok || json.Unmarshal([]byte(old), &in) != nil {
+			return nil
+		}
+		if _, err := w.ExecContext(ctx, `DELETE FROM dns64_client_rules WHERE network = ? AND name = ? AND local_only = 0`, in.Network, in.Name); err != nil {
+			return err
+		}
+		m.clSetSnap(ItemRecords, id, "")
+		m.reloadRecordsSoon()
+		return nil
+	}
+	var in clClientRule
+	if err := json.Unmarshal(data, &in); err != nil {
+		return err
+	}
+	r := ClientRule{Network: in.Network, Name: in.Name, A: in.A, AAAA: in.AAAA, TTL: in.TTL, Comment: in.Comment}
+	if err := normalizeClientRule(&r); err != nil {
+		return err
+	}
+	if clientRuleKey(r.Network, r.Name) != id {
+		return errors.New("client DNS rule key does not match data")
+	}
+	var rowID int64
+	var local bool
+	err := m.core.Reader().QueryRowContext(ctx, `SELECT id, local_only FROM dns64_client_rules WHERE network = ? AND name = ?`, r.Network, r.Name).Scan(&rowID, &local)
+	switch {
+	case err == nil && local:
+		return nil
+	case err == nil:
+		_, err = w.ExecContext(ctx, `UPDATE dns64_client_rules SET a = ?, aaaa = ?, ttl = ?, comment = ?, enabled = ? WHERE id = ?`, r.A, r.AAAA, r.TTL, r.Comment, in.Enabled, rowID)
+	case errors.Is(err, sql.ErrNoRows):
+		_, err = w.ExecContext(ctx, `INSERT INTO dns64_client_rules (network, name, a, aaaa, ttl, comment, enabled, created_at) VALUES (?,?,?,?,?,?,?,?)`,
+			r.Network, r.Name, r.A, r.AAAA, r.TTL, r.Comment, in.Enabled, time.Now().UTC().Format(time.RFC3339))
+	}
+	if err != nil {
+		return err
+	}
+	m.clSetSnap(ItemRecords, id, jsonString(clClientRule{r.Network, r.Name, r.A, r.AAAA, r.TTL, r.Comment, in.Enabled}))
+	m.reloadRecordsSoon()
+	return nil
 }
 
 // restartSoon startet DNS64 nach uebernommenen Einstellungen neu (gebuendelt: mehrere kommen meist zusammen).

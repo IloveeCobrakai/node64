@@ -64,35 +64,36 @@ type tab struct {
 }
 
 type pageData struct {
-	Tabs    []tab
-	Running bool
-	Err     string // DNS-Dienst laeuft nicht: Grund
-	Listen  string
-	Started time.Time
-	Router  string
-	Source  string // config | auto
-	JS      map[string]any
-	Cfg     config
-	Hours   []int
-	Records []Record
-	Fwds    []forwardView            // Seite Weiterleitungen
-	Rws     []Rewrite                // Seite Weiterleitungen: Umschreiben
-	Zones   []Zone                   // Seite Lokaler DNS: Zonen
-	DNames  []deviceName             // Seite Lokaler DNS: Geraetenamen der Zonen
-	Sel     string                   // Seite Lokaler DNS: gewaehlte Zone ("*" = alle, "-" = ohne Zone)
-	SelZone *Zone                    // Seite Lokaler DNS: gewaehlte Zone
-	ZCount  map[string]int           // Seite Lokaler DNS: Eintraege je Zone ("*", "-")
-	Back    string                   // Seite Lokaler DNS: Ruecksprung nach dem Speichern
-	Pub     pubView                  // Docker-Bridge: fehlende Veroeffentlichung, Gateway als Client (published.go)
-	Groups  []groups.Group           // Seiten Gruppen und Log
-	Devices []deviceView             // Seite Gruppen: Geraete der letzten 24 Stunden
-	Cats    []string                 // Seite Gruppen: Kategorien
-	States  map[int64]groupStateView // Seite Gruppen: Sperre, Frei, Zeitplan je Gruppe
-	Week    []int                    // Seite Gruppen: Wochentage 1..7
-	Types   []string
-	Enc     encView
-	Pause   pauseView
-	Refused dnsserver.Refused // Anfragen von fremden Adressen seit dem Start
+	Tabs        []tab
+	Running     bool
+	Err         string // DNS-Dienst laeuft nicht: Grund
+	Listen      string
+	Started     time.Time
+	Router      string
+	Source      string // config | auto
+	JS          map[string]any
+	Cfg         config
+	Hours       []int
+	Records     []Record
+	ClientRules []ClientRule
+	Fwds        []forwardView            // Seite Weiterleitungen
+	Rws         []Rewrite                // Seite Weiterleitungen: Umschreiben
+	Zones       []Zone                   // Seite Lokaler DNS: Zonen
+	DNames      []deviceName             // Seite Lokaler DNS: Geraetenamen der Zonen
+	Sel         string                   // Seite Lokaler DNS: gewaehlte Zone ("*" = alle, "-" = ohne Zone)
+	SelZone     *Zone                    // Seite Lokaler DNS: gewaehlte Zone
+	ZCount      map[string]int           // Seite Lokaler DNS: Eintraege je Zone ("*", "-")
+	Back        string                   // Seite Lokaler DNS: Ruecksprung nach dem Speichern
+	Pub         pubView                  // Docker-Bridge: fehlende Veroeffentlichung, Gateway als Client (published.go)
+	Groups      []groups.Group           // Seiten Gruppen und Log
+	Devices     []deviceView             // Seite Gruppen: Geraete der letzten 24 Stunden
+	Cats        []string                 // Seite Gruppen: Kategorien
+	States      map[int64]groupStateView // Seite Gruppen: Sperre, Frei, Zeitplan je Gruppe
+	Week        []int                    // Seite Gruppen: Wochentage 1..7
+	Types       []string
+	Enc         encView
+	Pause       pauseView
+	Refused     dnsserver.Refused // Anfragen von fremden Adressen seit dem Start
 }
 
 var tabs = []tab{{"overview", "/dns64", "dns64.tab.overview", "bi-speedometer2", false}, {"log", "/dns64/log", "dns64.tab.log", "bi-list-ul", false},
@@ -100,15 +101,15 @@ var tabs = []tab{{"overview", "/dns64", "dns64.tab.overview", "bi-speedometer2",
 	{"groups", "/dns64/groups", "dns64.tab.groups", "bi-people", false},
 	{"encrypted", "/dns64/encrypted", "dns64.tab.encrypted", "bi-lock", false}, {"settings", "/dns64/settings", "dns64.tab.settings", "bi-gear", false}}
 
-// localTabs: Reiter des Unterpunkts "Lokaler DNS" (Zonen mit Eintraegen, Weiterleitungen mit Umschreiben).
-var localTabs = []tab{{"local", "/dns64/local", "dns64.tab.zones", "bi-diagram-3", false}, {"forwards", "/dns64/local/forwards", "dns64.tab.forwards", "bi-signpost-2", false}}
+// localTabs: Reiter des Unterpunkts "Lokaler DNS" (Zonen, Weiterleitungen und Antworten nach Clientnetz).
+var localTabs = []tab{{"local", "/dns64/local", "dns64.tab.zones", "bi-diagram-3", false}, {"forwards", "/dns64/local/forwards", "dns64.tab.forwards", "bi-signpost-2", false}, {"client-rules", "/dns64/local/client-rules", "dns64.tab.client_rules", "bi-diagram-2", false}}
 
 func (m *Module) pageTab(key, titleKey string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		d := pageData{Cfg: m.loadConfig(ctx), Hours: listHours, Types: recordTypes}
 		set := tabs
-		if key == "local" || key == "forwards" {
+		if key == "local" || key == "forwards" || key == "client-rules" {
 			set = localTabs
 		}
 		for _, t := range set {
@@ -159,6 +160,13 @@ func (m *Module) pageTab(key, titleKey string) http.HandlerFunc {
 			}
 			d.Fwds = m.forwardViews(fl)
 		}
+		if key == "client-rules" {
+			var err error
+			d.ClientRules, err = m.ClientRules(ctx)
+			if err != nil {
+				m.g.Flash(w, r, "danger", err.Error())
+			}
+		}
 		d.JS = map[string]any{"csrf": m.g.CSRF(r), "lang": m.g.Lang(r), "t": m.jsTexts(r)}
 		m.g.Render(w, r, http.StatusOK, Name+"/"+key, titleKey, d)
 	}
@@ -173,7 +181,7 @@ var jsKeys = []string{"status.allowed", "status.blocked", "status.cached", "stat
 	"blocked_n", "no_entries", "via", "entries", "page", "live_paused", "flush_confirm", "flushed", "error", "active", "loading",
 	"sec", "min", "hours", "uptime", "allowed", "blocked", "no_conn", "reason_stale", "reason_released", "mode_parallel", "mode_ordered", "mode_fastest", "in_use", "off",
 	"proto.udp", "proto.tcp", "proto.doh", "proto.dot", "proto.doq", "reason_paused",
-	"reason_group", "reason_cat", "reason_off_hold", "reason_off_schedule", "reason_safesearch", "reason_canary", "reason_bypass_icloud", "fwd_ok", "fwd_fail", "reason_forward", "reason_rewrite", "rec_hint_A", "rec_hint_AAAA", "rec_hint_CNAME", "rec_hint_TXT", "rec_hint_MX", "rec_hint_SRV", "rec_hint_PTR", "rec_hint_CAA", "cat.social", "cat.games", "cat.streaming", "cat.gambling", "cat.adult", "top_col_domain", "top_col_client"}
+	"reason_group", "reason_cat", "reason_off_hold", "reason_off_schedule", "reason_safesearch", "reason_canary", "reason_bypass_icloud", "fwd_ok", "fwd_fail", "reason_forward", "reason_rewrite", "reason_client_rule", "rec_hint_A", "rec_hint_AAAA", "rec_hint_CNAME", "rec_hint_TXT", "rec_hint_MX", "rec_hint_SRV", "rec_hint_PTR", "rec_hint_CAA", "cat.social", "cat.games", "cat.streaming", "cat.gambling", "cat.adult", "top_col_domain", "top_col_client"}
 
 func (m *Module) jsTexts(r *http.Request) map[string]string {
 	out := make(map[string]string, len(jsKeys))

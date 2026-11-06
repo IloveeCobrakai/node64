@@ -123,6 +123,9 @@ func (m *Module) loadRecords(ctx context.Context) error {
 	if err := m.buildRecords(ctx); err != nil {
 		return err
 	}
+	if err := m.buildClientRules(ctx); err != nil {
+		return err
+	}
 	m.clChanged(ctx, ItemRecords)
 	return nil
 }
@@ -141,6 +144,10 @@ func (m *Module) reloadRecordsSoon() {
 		m.clMu.Unlock()
 		if err := m.buildRecords(context.Background()); err != nil {
 			m.log.Warn("dns64 records after cluster sync", "err", err)
+			return
+		}
+		if err := m.buildClientRules(context.Background()); err != nil {
+			m.log.Warn("dns64 client rules after cluster sync", "err", err)
 		}
 	})
 }

@@ -51,7 +51,7 @@ var migrationFS embed.FS
 
 const (
 	Name      = "dns64"
-	version   = "1.32.0"
+	version   = "1.33.0"
 	cacheSize = 20000
 
 	setPort      = "dns64.port"      // Port fuer DNS (UDP/TCP), Standard 53
@@ -81,13 +81,14 @@ type Module struct {
 	certs    *certs.Manager // zentrale Zertifikatsverwaltung, nil = keine (Tests)
 	lastErr  string         // letzter Fehler beim Start (z. B. Port belegt)
 
-	fwd  atomic.Pointer[fwdTable]                    // Weiterleitungen (forwards.go)
-	zns  atomic.Pointer[zoneTable]                   // lokale Zonen (zones.go)
-	devs atomic.Pointer[devTable]                    // Geraetenamen aus den Gruppen (zones.go)
-	rw   atomic.Pointer[rwTable]                     // Umschreiben (forwards.go)
-	recs atomic.Pointer[recordTable]                 // eigene DNS-Eintraege (records.go)
-	grp  *groups.Resolver                            // Geraetegruppen (groupstore.go)
-	pol  atomic.Pointer[map[int64]*dnsserver.Policy] // Regeln je Gruppe (policy.go)
+	fwd         atomic.Pointer[fwdTable]                    // Weiterleitungen (forwards.go)
+	zns         atomic.Pointer[zoneTable]                   // lokale Zonen (zones.go)
+	devs        atomic.Pointer[devTable]                    // Geraetenamen aus den Gruppen (zones.go)
+	rw          atomic.Pointer[rwTable]                     // Umschreiben (forwards.go)
+	recs        atomic.Pointer[recordTable]                 // eigene DNS-Eintraege (records.go)
+	clientRules atomic.Pointer[clientRuleTable]             // DNS-Antworten nach Clientnetz (clientrules.go)
+	grp         *groups.Resolver                            // Geraetegruppen (groupstore.go)
+	pol         atomic.Pointer[map[int64]*dnsserver.Policy] // Regeln je Gruppe (policy.go)
 
 	webCert, webKey string // Zertifikat der Weboberflaeche (cert_mode node64)
 
@@ -156,6 +157,7 @@ func (m *Module) Routes(mux *http.ServeMux, g module.Guards) {
 	m.uiRoutes(mux, g)
 	m.groupRoutes(mux, g)
 	m.forwardRoutes(mux, g)
+	m.clientRuleRoutes(mux, g)
 	m.zoneRoutes(mux, g)
 	m.apiRoutes(mux, g)
 	m.apiMoreRoutes(mux, g)
@@ -323,7 +325,7 @@ func (m *Module) start(ctx context.Context) error {
 	e.up.SetTop(cfg.UpCount)
 	e.local = localnet.New(m.routerAddr(ctx), m.log)
 	e.srv = &dnsserver.Server{Addr: e.addr, Local: e.local, Filter: e.lists, Upstream: e.up, Cache: e.cache, Log: st, Logger: m.log,
-		Records: m, Split: m.split, Forward: m.forwardFor, Rewrite: m.rewriteFor, Zone: m.zoneAnswer, Updates: m, BlockNX: cfg.BlockMode == blockNX, ExtraNets: cfg.allowPrefixes(), Anonymize: cfg.anonymizer(), Paused: m.paused,
+		Records: m, ClientAnswer: m.LookupClient, Split: m.split, Forward: m.forwardFor, Rewrite: m.rewriteFor, Zone: m.zoneAnswer, Updates: m, BlockNX: cfg.BlockMode == blockNX, ExtraNets: cfg.allowPrefixes(), Anonymize: cfg.anonymizer(), Paused: m.paused,
 		Policy: m.policy, Canary: cfg.Canary}
 	e.srv.HintV4, e.srv.HintV6 = hintAddrs(cfg.Bind)
 	if err := e.srv.Start(); err != nil {

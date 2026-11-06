@@ -4,6 +4,8 @@ Short summary of what changes per version. Details per module are in the node un
 
 ## Unreleased
 
+- DNS64: choose A and AAAA answers by client IP or CIDR rule; the most specific matching network wins and appears in the query log. (#21)
+
 ## 1.0.1 – 2026-11-05
 
 - Certificates: new DNS provider do.de (API token), now 27 providers.

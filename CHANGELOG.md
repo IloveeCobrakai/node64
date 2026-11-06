@@ -4,6 +4,8 @@ Kurz, was sich je Version ändert. Einzelheiten je Modul stehen in der Node unte
 
 ## Unveröffentlicht
 
+- DNS64: A- und AAAA-Antworten nach Client-IP oder CIDR-Regel wählen; das spezifischste passende Netz gewinnt und wird im Abfrage-Log angezeigt. (#21)
+
 ## 1.0.1 – 2026-11-05
 
 - Zertifikate: neuer DNS-Anbieter do.de (API-Token), jetzt 27 Anbieter.

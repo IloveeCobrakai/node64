@@ -1,5 +1,10 @@
 # Changes – DNS64
 
+## 1.33.0 – 2026-11-07
+
+### New
+- A and AAAA answer rules by client IP or CIDR; the most specific matching network wins and appears in the query log.
+
 ## 1.32.0 – 2026-11-03
 
 ### New

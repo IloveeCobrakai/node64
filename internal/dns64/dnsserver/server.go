@@ -67,6 +67,9 @@ type Records interface {
 	Lookup(name string, qtype uint16) (rrs []dns.RR, ok bool)
 }
 
+// ClientAnswerFunc answers a name for one client; rule is recorded in the query log.
+type ClientAnswerFunc func(name string, qtype uint16, client netip.Addr) (rrs []dns.RR, rule string, ok bool)
+
 // SplitFunc answers a name differently inside the home network (split DNS, e.g. CDN64 online names with the
 // node's own address); ok = answered (then the answer may be empty).
 type SplitFunc func(name string, qtype uint16, client netip.Addr) (rrs []dns.RR, ok bool)
@@ -80,20 +83,21 @@ type Server struct {
 	Log      *querylog.Store
 	Logger   *slog.Logger
 
-	Records   Records                  // nil = none
-	Split     SplitFunc                // answers for the home network before everything else (nil = none)
-	BlockNX   bool                     // blocked names answer NXDOMAIN instead of 0.0.0.0 / ::
-	ExtraNets []netip.Prefix           // further client networks besides private and attached ones
-	Anonymize func(netip.Addr) string  // client as stored in the log, nil = full IP
-	Paused    func() bool              // blocking switched off for now (nil = never)
-	Policy    func(netip.Addr) *Policy // rules of the client's device group (nil = none, global rules)
-	Canary    bool                     // use-application-dns.net -> NXDOMAIN (Firefox schaltet sein DoH ab)
-	HintV4    net.IP                   // Adresse der Node fuer "Internet aus" (Hinweisseite)
-	HintV6    net.IP
-	Forward   ForwardFunc // Domain -> eigene DNS-Server (nil = keine, forward.go)
-	Rewrite   RewriteFunc // Name antwortet wie ein anderer (nil = keins)
-	Zone      ZoneFunc    // lokale Zonen: Geraetenamen, SOA, NXDOMAIN fuer Unbekanntes (nil = keine)
-	Updates   Updater     // dynamische Updates mit TSIG (nil = keine, update.go)
+	Records      Records                  // nil = none
+	ClientAnswer ClientAnswerFunc         // subnet-specific A/AAAA records (nil = none)
+	Split        SplitFunc                // answers for the home network before everything else (nil = none)
+	BlockNX      bool                     // blocked names answer NXDOMAIN instead of 0.0.0.0 / ::
+	ExtraNets    []netip.Prefix           // further client networks besides private and attached ones
+	Anonymize    func(netip.Addr) string  // client as stored in the log, nil = full IP
+	Paused       func() bool              // blocking switched off for now (nil = never)
+	Policy       func(netip.Addr) *Policy // rules of the client's device group (nil = none, global rules)
+	Canary       bool                     // use-application-dns.net -> NXDOMAIN (Firefox schaltet sein DoH ab)
+	HintV4       net.IP                   // Adresse der Node fuer "Internet aus" (Hinweisseite)
+	HintV6       net.IP
+	Forward      ForwardFunc // Domain -> eigene DNS-Server (nil = keine, forward.go)
+	Rewrite      RewriteFunc // Name antwortet wie ein anderer (nil = keins)
+	Zone         ZoneFunc    // lokale Zonen: Geraetenamen, SOA, NXDOMAIN fuer Unbekanntes (nil = keine)
+	Updates      Updater     // dynamische Updates mit TSIG (nil = keine, update.go)
 
 	acl        *clientACL
 	srv        []*dns.Server
@@ -219,7 +223,13 @@ func (s *Server) Answer(r *dns.Msg, clientIP netip.Addr, proto string) *dns.Msg 
 
 	var resp *dns.Msg
 	fromRouter := s.Local != nil && s.Local.IsRouter(clientIP)
-	if s.Split != nil {
+	if s.ClientAnswer != nil {
+		if rrs, rule, ok := s.ClientAnswer(name, q.Qtype, clientIP); ok {
+			entry.Status, entry.Rule = querylog.StatusCustom, rule
+			resp = s.custom(r, rrs, fromRouter, 0)
+		}
+	}
+	if resp == nil && s.Split != nil {
 		if rrs, ok := s.Split(name, q.Qtype, clientIP); ok {
 			entry.Status = querylog.StatusCustom
 			resp = s.custom(r, rrs, fromRouter, 0)

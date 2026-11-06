@@ -1,5 +1,10 @@
 # Änderungen – DNS64
 
+## 1.33.0 – 2026-11-07
+
+### Neu
+- Antwortregeln für A und AAAA nach Client-IP oder CIDR-Netz; das spezifischste passende Netz gewinnt, der Treffer steht im Abfrage-Log.
+
 ## 1.32.0 – 2026-11-03
 
 ### Neu

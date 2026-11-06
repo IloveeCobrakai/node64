@@ -1088,6 +1088,72 @@
           "value"
         ]
       },
+      "DNS64ClientRule": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "network": {
+            "type": "string",
+            "description": "Client-IP oder CIDR; einzelner IP-Wert wird als /32 bzw. /128 gespeichert",
+            "example": "192.168.50.0/24"
+          },
+          "name": {
+            "type": "string",
+            "description": "Exakter Name oder *.example.com",
+            "example": "service.example.com"
+          },
+          "a": {
+            "type": "string",
+            "description": "Optionale IPv4-Antwort"
+          },
+          "aaaa": {
+            "type": "string",
+            "description": "Optionale IPv6-Antwort"
+          },
+          "ttl": {
+            "type": "integer",
+            "default": 300,
+            "minimum": 1,
+            "maximum": 86400
+          },
+          "comment": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "local_only": {
+            "type": "boolean",
+            "description": "Nur diese Node; sonst im DNS64-Cluster abgeglichen"
+          },
+          "enabled": {
+            "type": "boolean",
+            "readOnly": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "readOnly": true
+          }
+        },
+        "required": [
+          "network",
+          "name"
+        ],
+        "anyOf": [
+          {
+            "required": [
+              "a"
+            ]
+          },
+          {
+            "required": [
+              "aaaa"
+            ]
+          }
+        ]
+      },
       "DNS64Summary": {
         "type": "object",
         "properties": {
@@ -1217,6 +1283,10 @@
           "group": {
             "type": "string",
             "description": "Gerätegruppe"
+          },
+          "rule": {
+            "type": "string",
+            "description": "Name und Clientnetz der Antwortregel, die gegriffen hat"
           }
         }
       },
@@ -8893,6 +8963,197 @@
           },
           "404": {
             "description": "Nicht gefunden"
+          }
+        }
+      }
+    },
+    "/dns64/client-rules": {
+      "get": {
+        "tags": [
+          "DNS64"
+        ],
+        "summary": "Antwortregeln nach Clientnetz",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/DNS64ClientRule"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "DNS64"
+        ],
+        "summary": "Clientnetz-Regel anlegen",
+        "description": "Gilt sofort. Bei mehreren Treffern gewinnt das laengste passende Netzpraefix; fehlt der abgefragte Typ, wird die naechste passende Regel oder normale DNS-Aufloesung verwendet.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DNS64ClientRule"
+              },
+              "example": {
+                "network": "10.10.0.0/16",
+                "name": "service.example.com",
+                "a": "192.0.2.10",
+                "ttl": 300
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Angelegt",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DNS64ClientRule"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Ungueltig oder doppelt"
+          }
+        }
+      }
+    },
+    "/dns64/client-rules/{id}": {
+      "put": {
+        "tags": [
+          "DNS64"
+        ],
+        "summary": "Clientnetz-Regel aendern",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DNS64ClientRule"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Gespeichert",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DNS64ClientRule"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Ungueltig"
+          },
+          "404": {
+            "description": "Nicht gefunden"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "DNS64"
+        ],
+        "summary": "Clientnetz-Regel loeschen",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Geloescht"
+          },
+          "404": {
+            "description": "Nicht gefunden"
+          }
+        }
+      }
+    },
+    "/dns64/client-rules/{id}/enable": {
+      "post": {
+        "tags": [
+          "DNS64"
+        ],
+        "summary": "Clientnetz-Regel einschalten",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Neuer Stand",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DNS64ClientRule"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dns64/client-rules/{id}/disable": {
+      "post": {
+        "tags": [
+          "DNS64"
+        ],
+        "summary": "Clientnetz-Regel ausschalten",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Neuer Stand",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DNS64ClientRule"
+                }
+              }
+            }
           }
         }
       }
